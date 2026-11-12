@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Multi-Day Strategy Backtest</title>
+<style>
+:root{--bg:#fafaf8;--panel:#ffffff;--ink:#1c1c1a;--muted:#6b6b66;--line:#e4e2dc;--accent:#2d5be3;--pos:#1f7a4d;--neg:#b3261e;--warn:#fff4d6;--warnink:#5c4a00;--r:10px;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#141413;--panel:#1d1d1b;--ink:#ecebe6;--muted:#9b9a93;--line:#2e2e2a;--accent:#7d9bff;--pos:#5fcf95;--neg:#ff8a80;--warn:#3a3112;--warnink:#f2dc8a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141413;--panel:#1d1d1b;--ink:#ecebe6;--muted:#9b9a93;--line:#2e2e2a;--accent:#7d9bff;--pos:#5fcf95;--neg:#ff8a80;--warn:#3a3112;--warnink:#f2dc8a;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px}
+.warn{background:var(--warn);color:var(--warnink);border-radius:var(--r);padding:10px 12px;margin-bottom:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:14px}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+input,select,button{width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+button{background:var(--accent);color:#fff;border:0;cursor:pointer;font-weight:600}
+.msg{font-size:12px;color:var(--muted);margin-top:8px;min-height:1em}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile .v{font-size:22px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+.tile .s{font-size:12px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+.grid>.card{min-width:0}
+@media(min-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.full{grid-column:1/-1}}
+h2{font-size:15px;margin:0 0 8px}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--muted);font-size:11px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+.r{text-align:right}
+.note{font-size:12px;color:var(--muted);margin:8px 0 0}
+footer{font-size:12px;color:var(--muted);margin-top:18px}
+ol{margin:6px 0 0 18px;padding:0}
+li{margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Multi-Day Strategy Backtest</h1>
+<p class="sub">Moving-average crossover: long when the fast average is above the slow one, otherwise in cash. Trades at the close, with costs on each switch.</p>
+
+<div class="warn">
+  <strong>Data.</strong> The default series is a simulated price path (seed 7, 22% annual volatility, 750 days). It shows the engine working. It is not BGEO and is not a forecast. A real multi-day test needs daily closes: upload a CSV with two columns, date and close, at least 250 rows. The one-session BGEO trade file cannot support a multi-day test.
+</div>
+
+<div class="card">
+  <div class="ctrl">
+    <div><label for="src">Price series</label>
+      <select id="src"><option value="sim">Simulated sample</option><option value="upload">Uploaded daily closes</option></select></div>
+    <div><label for="fast">Fast average (days)</label><input id="fast" type="number" min="2" max="200" value="10"></div>
+    <div><label for="slow">Slow average (days)</label><input id="slow" type="number" min="3" max="250" value="50"></div>
+    <div><label for="cost">Cost per switch (bps)</label><input id="cost" type="number" min="0" max="200" step="1" value="10"></div>
+    <div><label for="file">Daily closes CSV</label><input id="file" type="file" accept=".csv,text/csv"></div>
+    <div><button id="run" type="button">Run backtest</button></div>
+  </div>
+  <div class="msg" id="msg" role="status"></div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Strategy return</div><div class="v" id="tStrat">–</div><div class="s" id="tStratS"></div></div>
+  <div class="tile"><div class="k">Buy and hold return</div><div class="v" id="tBH">–</div><div class="s" id="tBHS"></div></div>
+  <div class="tile"><div class="k">Sharpe (strategy)</div><div class="v" id="tSharpe">–</div><div class="s" id="tSharpeS"></div></div>
+  <div class="tile"><div class="k">Max drawdown</div><div class="v" id="tDD">–</div><div class="s" id="tDDS"></div></div>
+  <div class="tile"><div class="k">Trades</div><div class="v" id="tTrades">–</div><div class="s" id="tTradesS"></div></div>
+  <div class="tile"><div class="k">Time in market</div><div class="v" id="tInMkt">–</div><div class="s" id="tInMktS"></div></div>
+</div>
+
+<div class="grid">
+  <section class="card">
+    <h2>Equity: strategy against buy and hold</h2>
+    <svg id="eq" viewBox="0 0 960 280" role="img" aria-label="Growth of 1 for the strategy and for buy and hold"></svg>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Strategy (net of costs)</span><span><i style="background:var(--muted)"></i>Buy and hold</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Price with the two averages</h2>
+    <svg id="px" viewBox="0 0 960 280" role="img" aria-label="Price with fast and slow moving averages"></svg>
+    <div class="legend"><span><i style="background:var(--muted)"></i>Price</span><span><i style="background:var(--accent)"></i>Fast average</span><span><i style="background:var(--pos)"></i>Slow average</span></div>
+  </section>
+
+  <section class="card full">
+    <h2>Drawdown of the strategy (%)</h2>
+    <svg id="dd" viewBox="0 0 960 220" role="img" aria-label="Strategy drawdown from its running peak"></svg>
+  </section>
+
+  <section class="card full">
+    <h2>Trades (most recent first, up to 15)</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Entry</th><th>Exit</th><th class="r">Entry close</th><th class="r">Exit close</th><th class="r">Return</th></tr></thead>
+        <tbody id="tradeRows"></tbody>
+      </table>
+    </div>
+    <p class="note" id="tradeNote"></p>
+  </section>
+</div>
+
+<footer>
+  <strong>Method.</strong>
+  <ol>
+    <li>Signal at close t: long if the fast average is above the slow average, otherwise flat.</li>
+    <li>The position is entered at close t and earns the return from close t to t+1, so the signal never uses the return it trades on.</li>
+    <li>Cost is charged on each switch in or out, in basis points of the position size.</li>
+    <li>No short selling, leverage, dividends, or slippage beyond the cost input. Sharpe uses a zero risk-free rate and 252 trading days.</li>
+  </ol>
+  One pair of parameters tested on one history is prone to overfitting. Treat the output as a test of the rule, not as a recommendation. Not investment advice.
+</footer>
+
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const pct = v => (v * 100).toFixed(1) + '%';
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+function simulate(n, seed, annVol, drift){
+  const rnd = mulberry32(seed), sd = annVol / Math.sqrt(252), p = [1000];
+  for (let i = 1; i < n; i++){
+    let u1 = rnd(), u2 = rnd(); if (u1 < 1e-12) u1 = 1e-12;
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    p.push(p[i-1] * Math.exp(drift / 252 - 0.5 * sd * sd + sd * z));
+  }
+  return p;
+}
+
+function sma(a, n){
+  const out = new Array(a.length).fill(null); let s = 0;
+  for (let i = 0; i < a.length; i++){
+    s += a[i]; if (i >= n) s -= a[i - n];
+    if (i >= n - 1) out[i] = s / n;
+  }
+  return out;
+}
+
+function runStrategy(p, fast, slow, costBps){
+  const f = sma(p, fast), s = sma(p, slow), n = p.length, cost = costBps / 10000;
+  const sig = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) sig[i] = (f[i] !== null && s[i] !== null && f[i] > s[i]) ? 1 : 0;
+
+  const start = slow;             // first period where the slow average exists for the decision
+  const series = [], trades = [];
+  let prev = 0, open = null, eqS = 1, eqB = 1, peakS = 1, peakB = 1;
+
+  for (let i = start; i < n; i++){
+    const pos = sig[i - 1];       // decided at close i-1
+    const r = p[i] / p[i-1] - 1;  // return earned over the next day
+    const turn = Math.abs(pos - prev);
+    if (turn > 0){
+      if (pos === 1) open = { entry: i - 1, entryPx: p[i-1] };
+      else if (open){ trades.push({ entry: open.entry, exit: i - 1, entryPx: open.entryPx, exitPx: p[i-1], ret: p[i-1] / open.entryPx - 1, open: false }); open = null; }
+    }
+    const net = pos * r - turn * cost;
+    eqS *= (1 + net); eqB *= (1 + r);
+    peakS = Math.max(peakS, eqS); peakB = Math.max(peakB, eqB);
+    series.push({ i, pos, r, net, eqS, eqB, dd: eqS / peakS - 1, ddB: eqB / peakB - 1 });
+    prev = pos;
+  }
+  if (open) trades.push({ entry: open.entry, exit: n - 1, entryPx: open.entryPx, exitPx: p[n-1], ret: p[n-1] / open.entryPx - 1, open: true });
+
+  const N = series.length;
+  const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const sd = a => { const m = mean(a); return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / (a.length - 1)); };
+  const nets = series.map(x => x.net), rb = series.map(x => x.r);
+  const sNet = sd(nets), sB = sd(rb), mS = mean(nets), mB = mean(rb);
+  const eqSEnd = series[N-1].eqS, eqBEnd = series[N-1].eqB;
+  const closed = trades.filter(t => !t.open);
+  const m = {
+    total: eqSEnd - 1, cagr: Math.pow(eqSEnd, 252 / N) - 1,
+    vol: sNet * Math.sqrt(252), sharpe: sNet > 0 ? mS / sNet * Math.sqrt(252) : 0,
+    maxDD: Math.min(0, ...series.map(x => x.dd)),
+    trades: trades.length, hit: closed.length ? closed.filter(t => t.ret > 0).length / closed.length : 0,
+    inMkt: mean(series.map(x => x.pos)),
+    bhTotal: eqBEnd - 1, bhCagr: Math.pow(eqBEnd, 252 / N) - 1,
+    bhSharpe: sB > 0 ? mB / sB * Math.sqrt(252) : 0, bhMaxDD: Math.min(0, ...series.map(x => x.ddB))
+  };
+  return { f, s, start, series, trades, m };
+}
+
+function chart(id, n, lines, fmt){
+  const W = 960, H = 280, L = 62, R = 12, T = 10, B = 24;
+  let lo = Infinity, hi = -Infinity;
+  lines.forEach(l => l.ys.forEach(v => { if (v != null && isFinite(v)){ if (v < lo) lo = v; if (v > hi) hi = v; } }));
+  if (!isFinite(lo)){ $(id).innerHTML = ''; return; }
+  if (hi === lo) hi = lo + 1e-9;
+  const pad = (hi - lo) * 0.05; lo -= pad; hi += pad;
+  const X = i => L + i / Math.max(1, n - 1) * (W - L - R), Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  let out = '';
+  for (let k = 0; k <= 4; k++){
+    const v = lo + (hi - lo) * k / 4, y = Y(v).toFixed(1);
+    out += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" style="stroke:var(--line)" stroke-width="0.7"/><text x="${L - 6}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  lines.forEach(l => {
+    const pts = [];
+    l.ys.forEach((v, i) => { if (v != null && isFinite(v)) pts.push(X(i).toFixed(1) + ',' + Y(v).toFixed(1)); });
+    out += `<polyline fill="none" style="stroke:${l.css}" stroke-width="${l.w || 1.6}" points="${pts.join(' ')}"/>`;
+  });
+  $(id).innerHTML = out;
+}
+
+let UPLOADED = null, SIM = null;
+function getSim(){ if (!SIM){ const p = simulate(750, 7, 0.22, 0.05); SIM = { lab: p.map((_, i) => 'Day ' + (i + 1)), p }; } return SIM; }
+
+function parseCSV(txt){
+  const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const lab = [], p = [];
+  for (const line of lines){
+    const cols = line.split(/[,;\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
+    if (cols.length < 2) continue;
+    const v = Number(cols[1]);
+    if (!isFinite(v) || v <= 0) continue;          // header rows fall out here
+    lab.push(cols[0]); p.push(v);
+  }
+  if (p.length < 250) throw new Error(`need at least 250 daily closes, found ${p.length}`);
+  const d0 = Date.parse(lab[0]), d1 = Date.parse(lab[lab.length - 1]);
+  if (isFinite(d0) && isFinite(d1) && d0 > d1){ lab.reverse(); p.reverse(); }
+  return { lab, p };
+}
+
+function render(D, R, fast, slow, cost){
+  const m = R.m, n = D.p.length;
+  const eqS = new Array(n).fill(null), eqB = new Array(n).fill(null), dd = new Array(n).fill(null);
+  eqS[R.start - 1] = 1; eqB[R.start - 1] = 1; dd[R.start - 1] = 0;
+  R.series.forEach(x => { eqS[x.i] = x.eqS; eqB[x.i] = x.eqB; dd[x.i] = x.dd * 100; });
+
+  const sign = v => (v >= 0 ? '+' : '');
+  $('tStrat').textContent = sign(m.total) + pct(m.total);
+  $('tStratS').textContent = 'CAGR ' + pct(m.cagr);
+  $('tBH').textContent = sign(m.bhTotal) + pct(m.bhTotal);
+  $('tBHS').textContent = 'CAGR ' + pct(m.bhCagr);
+  $('tSharpe').textContent = m.sharpe.toFixed(2);
+  $('tSharpeS').textContent = 'Buy and hold ' + m.bhSharpe.toFixed(2);
+  $('tDD').textContent = pct(m.maxDD);
+  $('tDDS').textContent = 'Buy and hold ' + pct(m.bhMaxDD);
+  $('tTrades').textContent = m.trades;
+  $('tTradesS').textContent = 'Closed-trade hit rate ' + (m.hit * 100).toFixed(0) + '%';
+  $('tInMkt').textContent = (m.inMkt * 100).toFixed(0) + '%';
+  $('tInMktS').textContent = cost + ' bps per switch';
+
+  chart('eq', n, [{ ys: eqB, css: 'var(--muted)', w: 1.2 }, { ys: eqS, css: 'var(--accent)', w: 1.8 }], v => v.toFixed(2));
+  chart('px', n, [{ ys: D.p, css: 'var(--muted)', w: 1 }, { ys: R.f, css: 'var(--accent)', w: 1.4 }, { ys: R.s, css: 'var(--pos)', w: 1.4 }], v => v.toFixed(0));
+  chart('dd', n, [{ ys: dd, css: 'var(--neg)', w: 1.4 }], v => v.toFixed(0) + '%');
+
+  const rows = R.trades.slice(-15).reverse().map((t, k) => {
+    const col = t.ret >= 0 ? 'var(--pos)' : 'var(--neg)';
+    return `<tr><td>${R.trades.length - k}</td><td>${D.lab[t.entry]}</td><td>${D.lab[t.exit]}${t.open ? ' (open)' : ''}</td><td class="r">${t.entryPx.toFixed(2)}</td><td class="r">${t.exitPx.toFixed(2)}</td><td class="r" style="color:${col}">${sign(t.ret)}${pct(t.ret)}</td></tr>`;
+  }).join('');
+  $('tradeRows').innerHTML = rows || '<tr><td colspan="6">No trades in this window.</td></tr>';
+  $('tradeNote').textContent = `Averages ${fast} and ${slow} days. ${R.trades.length} trades in total. Rows are closes, not intraday fills.`;
+}
+
+function run(){
+  const fast = +$('fast').value, slow = +$('slow').value, cost = +$('cost').value;
+  if (!(Number.isInteger(fast) && Number.isInteger(slow) && fast >= 2 && slow > fast && slow <= 250)){
+    $('msg').textContent = 'Set whole numbers with 2 ≤ fast < slow ≤ 250.'; return;
+  }
+  if (!(cost >= 0 && cost <= 200)){ $('msg').textContent = 'Cost must be between 0 and 200 bps.'; return; }
+  let D;
+  if ($('src').value === 'upload'){
+    if (!UPLOADED){ $('msg').textContent = 'Choose a CSV file first.'; return; }
+    D = UPLOADED;
+  } else D = getSim();
+  if (D.p.length < slow + 30){ $('msg').textContent = 'Not enough data for the slow average.'; return; }
+  const R = runStrategy(D.p, fast, slow, cost);
+  render(D, R, fast, slow, cost);
+  window.LAST = { D, R };
+  if ($('src').value === 'sim') $('msg').textContent = 'Showing the simulated sample.';
+}
+
+$('run').addEventListener('click', run);
+$('src').addEventListener('change', run);
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      UPLOADED = parseCSV(String(rd.result));
+      $('src').value = 'upload';
+      $('msg').textContent = `Loaded ${UPLOADED.p.length} daily closes from ${f.name}.`;
+      run();
+    } catch (err){ $('msg').textContent = 'Could not use that file: ' + err.message; }
+  };
+  rd.readAsText(f);
+});
+run();
+</script>
+</body>
+</html>
